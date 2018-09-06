@@ -19,6 +19,7 @@ import Context from '../gl/context';
 import DepthMode from '../gl/depth_mode';
 import StencilMode from '../gl/stencil_mode';
 import ColorMode from '../gl/color_mode';
+import CullFaceMode from '../gl/cull_face_mode';
 import Texture from './texture';
 import updateTileMasks from './tile_mask';
 import { clippingMaskUniformValues } from './program/clipping_mask_program';
@@ -96,7 +97,6 @@ class Painter {
     viewportBuffer: VertexBuffer;
     viewportSegments: SegmentVector;
     quadTriangleIndexBuffer: IndexBuffer;
-    quadTriangleIndexBufferInverted: IndexBuffer;
     tileBorderIndexBuffer: IndexBuffer;
     _tileClippingMaskIDs: { [number]: number };
     stencilClearMode: StencilMode;
@@ -200,24 +200,9 @@ class Painter {
         this.tileBorderIndexBuffer = context.createIndexBuffer(tileLineStripIndices);
 
         const quadTriangleIndices = new TriangleIndexArray();
-        // ┌──────┐
-        // │ 0  1 │ Counter-clockwise winding order.
-        // │      │ Triangle 1: 0 => 2 => 1
-        // │ 2  3 │ Triangle 2: 1 => 2 => 3
-        // └──────┘
-        quadTriangleIndices.emplaceBack(0, 2, 1);
-        quadTriangleIndices.emplaceBack(1, 2, 3);
+        quadTriangleIndices.emplaceBack(0, 1, 2);
+        quadTriangleIndices.emplaceBack(2, 1, 3);
         this.quadTriangleIndexBuffer = context.createIndexBuffer(quadTriangleIndices);
-
-        // ┌──────┐
-        // │ 1  0 │ Counter-clockwise winding order (inverted Y-axis).
-        // │      │ Triangle 1: 0 => 1 => 2
-        // │ 3  2 │ Triangle 2: 1 => 2 => 3
-        // └──────┘
-        const quadTriangleIndicesInverted = new TriangleIndexArray();
-        quadTriangleIndicesInverted.emplaceBack(0, 1, 2);
-        quadTriangleIndicesInverted.emplaceBack(1, 3, 2);
-        this.quadTriangleIndexBufferInverted = context.createIndexBuffer(quadTriangleIndicesInverted);
 
         const gl = this.context.gl;
         this.stencilClearMode = new StencilMode({ func: gl.ALWAYS, mask: 0 }, 0x0, 0xFF, gl.ZERO, gl.ZERO, gl.ZERO);
@@ -241,7 +226,7 @@ class Painter {
         mat4.scale(matrix, matrix, [gl.drawingBufferWidth, gl.drawingBufferHeight, 0]);
 
         this.useProgram('clippingMask').draw(context, gl.TRIANGLES,
-            DepthMode.disabled, this.stencilClearMode, ColorMode.disabled,
+            DepthMode.disabled, this.stencilClearMode, ColorMode.disabled, CullFaceMode.disabled,
             clippingMaskUniformValues(matrix),
             '$clipping', this.viewportBuffer,
             this.quadTriangleIndexBuffer, this.viewportSegments);
@@ -265,7 +250,7 @@ class Painter {
             program.draw(context, gl.TRIANGLES, DepthMode.disabled,
                 // Tests will always pass, and ref value will be written to stencil buffer.
                 new StencilMode({ func: gl.ALWAYS, mask: 0 }, id, 0xFF, gl.KEEP, gl.KEEP, gl.REPLACE),
-                ColorMode.disabled, clippingMaskUniformValues(tileID.posMatrix),
+                ColorMode.disabled, CullFaceMode.disabled, clippingMaskUniformValues(tileID.posMatrix),
                 '$clipping', this.tileExtentBuffer,
                 this.quadTriangleIndexBuffer, this.tileExtentSegments);
         }
@@ -342,12 +327,6 @@ class Painter {
         // later: in doing this we avoid doing expensive framebuffer restores.
         this.renderPass = 'offscreen';
         this.depthRboNeedsClear = true;
-
-        // Counter-clockwise winding order for culling back-facing triangles.
-        {
-            const gl = this.context.gl;
-            this.context.setCullFace(true, gl.BACK, gl.CCW);
-        }
 
         for (const layerId of layerIds) {
             const layer = this.style._layers[layerId];

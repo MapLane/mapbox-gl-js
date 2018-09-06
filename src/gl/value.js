@@ -361,7 +361,7 @@ export class CullFace implements Value<boolean> {
     }
 }
 
-export class CullFaceMode implements Value<CullFaceModeType> {
+export class CullFaceSide implements Value<CullFaceModeType> {
     context: Context;
     current: CullFaceModeType;
 
